@@ -61,6 +61,43 @@ body {
   font-size: 1rem;
   opacity: 0.9;
   font-weight: 500;
+  margin-bottom: 1rem;
+}
+
+.header-user {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.user-email {
+  font-size: 0.9rem;
+  opacity: 0.95;
+}
+
+.logout-button {
+  padding: 0.5rem 1rem;
+  background-color: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.logout-button:hover {
+  background-color: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+.logout-button:active {
+  transform: scale(0.98);
 }
 
 /* Main Content */

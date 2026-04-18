@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import './main.css';
 
-export default function Scrapless() {
+export default function Main({ userEmail, onLogout }) {
   const [uploadedImage, setUploadedImage] = useState(null);
   const [ingredients, setIngredients] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -87,6 +87,10 @@ export default function Scrapless() {
         <div className="header-content">
           <h1 className="logo">Scrapless</h1>
           <p className="tagline">Reduce food waste, maximize freshness</p>
+          <div className="header-user">
+            <span className="user-email">{userEmail}</span>
+            <button onClick={onLogout} className="logout-button">Sign Out</button>
+          </div>
         </div>
       </header>
 
