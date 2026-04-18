@@ -6,6 +6,7 @@ export default function Scrapless() {
   const [ingredients, setIngredients] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedIngredient, setSelectedIngredient] = useState(null);
+  const API_URL = import.meta.env.VITE_API_URL;
 
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
@@ -40,10 +41,10 @@ export default function Scrapless() {
       const formData = new FormData();
       formData.append('image', file);
 
-      const response = await fetch('/api/analyze-ingredients', {
-        method: 'POST',
-        body: formData,
-      });
+      const response = await fetch(`${API_URL}/analyze-ingredients`, {
+      method: 'POST',
+      body: formData
+    });
 
       if (response.ok) {
         const data = await response.json();
@@ -57,22 +58,26 @@ export default function Scrapless() {
   };
 
 
-  const getFreshnessColor = (daysLeft) => {
-    if (daysLeft > 5) return '#10b981'; // Green
-    if (daysLeft > 1) return '#f59e0b'; // Amber
-    return '#ef4444'; // Red
+  const getFreshnessColor = (ingredient) => {
+    const urgency = ingredient.freshness_urgency || 'unknown';
+    if (urgency === 'critical' || urgency === 'urgent') return '#ef4444'; // Red
+    if (urgency === 'warning') return '#f59e0b'; // Amber
+    if (urgency === 'good' || urgency === 'excellent') return '#10b981'; // Green
+    return '#f59e0b'; // Default to Amber for unknown
   };
 
-  const getFreshnessLabel = (daysLeft) => {
-    if (daysLeft > 5) return 'Fresh';
-    if (daysLeft > 2) return 'Use Soon';
-    return 'Use Today';
+  const getFreshnessLabel = (ingredient) => {
+    return ingredient.freshness_status ? 
+      ingredient.freshness_status.charAt(0).toUpperCase() + ingredient.freshness_status.slice(1) : 
+      'Unknown';
   };
 
-  const getCardBackgroundColor = (daysLeft) => {
-    if (daysLeft > 5) return '#dcfce7'; // Light green for "Good shape"
-    if (daysLeft > 2) return '#fef3c7'; // Light yellow for "Use Soon"
-    return '#fee2e2'; // Light red for "Use Today"
+  const getCardBackgroundColor = (ingredient) => {
+    const urgency = ingredient.freshness_urgency || 'unknown';
+    if (urgency === 'critical' || urgency === 'urgent') return '#fee2e2'; // Light red
+    if (urgency === 'warning') return '#fef3c7'; // Light yellow
+    if (urgency === 'good' || urgency === 'excellent') return '#dcfce7'; // Light green
+    return '#fef3c7'; // Default to light yellow for unknown
   };
 
   return (
@@ -144,14 +149,14 @@ export default function Scrapless() {
             </p>
 
             <div className="ingredients-grid">
-              {ingredients.map((ingredient, index) => (
+              {[...ingredients].sort((a, b) => a.days_remaining - b.days_remaining).map((ingredient, index) => (
                 <div
                   key={index}
                   className="ingredient-card"
                   onClick={() => setSelectedIngredient(selectedIngredient === index ? null : index)}
                   style={{ 
                     cursor: 'pointer',
-                    backgroundColor: getCardBackgroundColor(ingredient.daysLeft)
+                    backgroundColor: getCardBackgroundColor(ingredient)
                   }}
                 >
                   <h3 className="ingredient-name">{ingredient.name}</h3>
@@ -160,8 +165,8 @@ export default function Scrapless() {
                     <div
                       className="freshness-bar"
                       style={{
-                        backgroundColor: getFreshnessColor(ingredient.daysLeft),
-                        width: `${(ingredient.daysLeft / 10) * 100}%`,
+                        backgroundColor: getFreshnessColor(ingredient),
+                        width: `${(ingredient.freshness_scale / 10) * 100}%`,
                       }}
                     ></div>
                   </div>
@@ -170,13 +175,13 @@ export default function Scrapless() {
                     <span
                       className="freshness-badge"
                       style={{
-                        backgroundColor: getFreshnessColor(ingredient.daysLeft),
+                        backgroundColor: getFreshnessColor(ingredient),
                         color: 'white',
                       }}
                     >
-                      {getFreshnessLabel(ingredient.daysLeft)}
+                      {getFreshnessLabel(ingredient)}
                     </span>
-                    <span className="days-left">{ingredient.daysLeft} days</span>
+                    <span className="days-left">{ingredient.days_remaining} days</span>
                   </div>
 
                   {/* Expanded Details */}
@@ -212,14 +217,14 @@ export default function Scrapless() {
         {!uploadedImage && ingredients.length === 0 && !loading && (
           <section className="empty-state">
             <h3>Ready to reduce food waste?</h3>
-            <p>Upload a photo of your fridge to get started</p>
+            <p>Upload a photo of your ingredients to get started</p>
           </section>
         )}
       </main>
 
       {/* Footer */}
       <footer className="footer">
-        <p>Scrapless © 2024 - Making a difference, one ingredient at a time</p>
+        <p>Scrapless © 2026 - Making a difference, one ingredient at a time</p>
       </footer>
     </div>
   );
