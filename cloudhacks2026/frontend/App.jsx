@@ -13,13 +13,65 @@ import "./App.css";
 
 const API_URL = "https://y8hng6eo97.execute-api.us-west-2.amazonaws.com";
 
-function Landing({ ingredients }) {
-  const navigate = useNavigate();
+function Landing({ ingredients, setIngredients }) {  const navigate = useNavigate();
 
   const [meal, setMeal] = useState(null);
   const [mealLoading, setMealLoading] = useState(false);
+  const handleUseMeal = async () => {
+  if (!meal || !meal.ingredients_used) {
+    console.warn("No meal or ingredients_used");
+    return;
+  }
 
-  // 🔥 Fetch meal using meal_planner Lambda
+  const email = localStorage.getItem("userEmail");
+
+  try {
+    const res = await fetch(`${API_URL}/get-meal`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        user_id: email,
+        action: "accept",
+        ingredients_used: meal.ingredients_used,
+      }),
+    });
+
+    const text = await res.text();
+    console.log("USE MEAL RAW:", text);
+
+    let data = {};
+    try {
+      data = JSON.parse(text);
+    } catch {
+      console.error("Bad JSON:", text);
+    }
+
+    // 🔥 clear meal immediately
+    setMeal(null);
+
+    // 🔥 refetch ingredients
+    const ingRes = await fetch(
+      `${API_URL}/get-ingredients?user_id=${encodeURIComponent(email)}`
+    );
+
+    const ingText = await ingRes.text();
+    console.log("REFETCH ING:", ingText);
+
+    let ingData = [];
+    try {
+      ingData = JSON.parse(ingText);
+    } catch {}
+
+    if (Array.isArray(ingData)) {
+      setIngredients(ingData);
+    }
+
+  } catch (err) {
+    console.error("Use meal error:", err);
+  }
+};
   useEffect(() => {
   const fetchMeal = async () => {
     const email = localStorage.getItem("userEmail");
@@ -29,26 +81,43 @@ function Landing({ ingredients }) {
 
     try {
       const res = await fetch(
-        `${API_URL}/get-meal?user_id=${encodeURIComponent(email)}&action=suggest&meal_type=any`
+        `${API_URL}/get-meal?user_id=${encodeURIComponent(
+          email
+        )}&action=suggest&meal_type=any`
       );
 
-      const data = await res.json();
-      console.log("MEAL RESPONSE:", data);
+      const text = await res.text(); // 🔥 get raw response
+      console.log("RAW MEAL RESPONSE:", text);
 
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        console.error("Not JSON:", text);
+        setMeal(null);
+        return;
+      }
+
+      // 🔥 handle all cases
       if (data.meal) {
         setMeal(data.meal);
+      } else {
+        console.warn("No meal returned:", data);
+        setMeal(null);
       }
+
     } catch (err) {
       console.error("Meal fetch error:", err);
+      setMeal(null);
     } finally {
       setMealLoading(false);
     }
   };
 
   fetchMeal();
-}, [ingredients]);  
+}, []);
 
-return (
+  return (
     <main className="app-shell">
       <section className="hero">
         <div className="hero-copy">
@@ -59,23 +128,20 @@ return (
             fridge leftovers into easy meals.
           </p>
 
-          <div className="hero-actions">
-            <button
-              className="primary-button"
-              onClick={() => navigate("/app")}
-            >
-              Scan my ingredients
-            </button>
-
-            <button className="secondary-button">
-              View sample plan
-            </button>
-          </div>
+        <div className="hero-actions">
+          <button
+            className="primary-button"
+            onClick={() => navigate("/app")}
+          >
+            Scan my ingredients
+          </button>
+        </div>
         </div>
       </section>
 
-      {/* INGREDIENTS */}
+      {/* 🔥 FIXED: SAME GRID, BUT BOTH INSIDE */}
       <section className="content-grid">
+        {/* INGREDIENTS (LEFT) */}
         <section className="card">
           <div className="section-heading">
             <div>
@@ -87,6 +153,11 @@ return (
           {ingredients.length > 0 ? (
             <div className="ingredient-list">
               {[...ingredients]
+                .filter(item =>
+                  item.name &&
+                  item.name.trim() !== "" &&
+                  item.ingredient_id !== "USER_META"
+                )
                 .sort((a, b) => {
                   const aDays = a.days_remaining ?? null;
                   const bDays = b.days_remaining ?? null;
@@ -166,54 +237,68 @@ return (
             </div>
           )}
         </section>
-      </section>
 
-      {/* 🍽 MEAL PLAN */}
-      <section className="card accent-card">
-        <p className="section-label">Tonight's dinner</p>
-        <h2>Your meal suggestion</h2>
+        {/* 🍽 MEAL (RIGHT — FIXED POSITION) */}
+        <section className="card accent-card">
+          <p className="section-label">Tonight's dinner</p>
+          <h2>Your meal suggestion</h2>
 
-        {mealLoading ? (
-  <div className="steps">
-    <p className="empty-message">
-      Finding the best meal for your ingredients...
-    </p>
-  </div>
-) : meal ? (
-  <div className="meal-card">
-    <h3>{meal.name}</h3>
+          {mealLoading ? (
+            <div className="steps">
+              <p className="empty-message">
+                Finding the best meal for your ingredients...
+              </p>
+            </div>
+          ) : meal ? (
+            <div className="meal-card">
+  <h3>{meal.name}</h3>
 
-    {meal.description && (
-      <p className="accent-copy">{meal.description}</p>
-    )}
+  {meal.description && (
+    <p className="accent-copy">{meal.description}</p>
+  )}
 
-    {meal.ingredients_used && (
-      <p className="recipe-line">
-        Uses:{" "}
-        <span>
-          {meal.ingredients_used.map((i) => i.name).join(", ")}
-        </span>
-      </p>
-    )}
-
-    {meal.steps && (
-      <div className="recipe-steps">
-        <p className="recipe-line"><strong>Recipe:</strong></p>
-        <ol>
-          {meal.steps.map((step, idx) => (
-            <li key={idx}>{step}</li>
+  {/* 🔥 CLEAN INGREDIENT LIST */}
+  {meal.ingredients_used && (
+    <div className="recipe-section">
+      <p className="recipe-title">Ingredients</p>
+      <ul className="ingredient-tags">
+        {[...new Set(meal.ingredients_used.map(i => i.name))]
+          .map((name, idx) => (
+            <li key={idx}>{name}</li>
           ))}
-        </ol>
+      </ul>
+    </div>
+  )}
+
+      {/* 🔥 RECIPE STEPS */}
+          {meal.steps && (
+            <div className="recipe-section">
+              <p className="recipe-title">Steps</p>
+              <ol className="recipe-steps">
+                {meal.steps.map((step, idx) => (
+                  <li key={idx}>{step}</li>
+                ))}
+              </ol>
+            </div>
+          )}
+
+          <button
+            className="primary-button"
+            onClick={handleUseMeal}
+            style={{ marginTop: "12px" }}
+          >
+            Use this meal
+          </button>
       </div>
-    )}
-  </div>
-) : (
-  <div className="steps empty-state">
-    <p className="empty-message">
-      Add ingredients to get a personalized meal recommendation
-    </p>
-  </div>
-)}  </section>
+          ) : (
+            <div className="steps empty-state">
+              <p className="empty-message">
+                Add ingredients to get a personalized meal recommendation
+              </p>
+            </div>
+          )}
+        </section>
+      </section>
     </main>
   );
 }
@@ -233,7 +318,36 @@ export default function App() {
 
     setLoading(false);
   }, []);
+  
+  useEffect(() => {
+    const fetchIngredients = async () => {
+      if (!userEmail) return;
 
+      try {
+        const res = await fetch(
+          `${API_URL}/get-ingredients?user_id=${encodeURIComponent(userEmail)}`
+        );
+
+        const text = await res.text();
+        console.log("INGREDIENT RAW:", text);
+
+        let data = [];
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          console.error("Invalid JSON:", text);
+        }
+
+        if (Array.isArray(data)) {
+          setIngredients(data);
+        }
+      } catch (err) {
+        console.error("Ingredient fetch error:", err);
+      }
+    };
+
+    fetchIngredients();
+  }, [userEmail]);
   const handleLogin = (email) => {
     const normalized = email.trim().toLowerCase();
     localStorage.setItem("userEmail", normalized);
@@ -251,16 +365,19 @@ export default function App() {
   return (
     <Router>
       <Routes>
-        <Route
-          path="/"
-          element={
-            userEmail ? (
-              <Landing ingredients={ingredients} />
-            ) : (
-              <Login onLogin={handleLogin} />
-            )
-          }
-        />
+          <Route
+            path="/"
+            element={
+              userEmail ? (
+                <Landing
+                  ingredients={ingredients}
+                  setIngredients={setIngredients}
+                />
+              ) : (
+                <Login onLogin={handleLogin} />
+              )
+            }
+          />
 
         <Route
           path="/app"
