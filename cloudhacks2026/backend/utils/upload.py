@@ -8,8 +8,6 @@ Usage:
     python upload.py path/to/image.jpg
     python upload.py path/to/image.png
     python upload.py path/to/image.jpg --json
-    python upload.py path/to/image.jpg --date-purchased 2025-07-10
-    python upload.py path/to/image.jpg -d 07/10/2025
 """
 
 import sys
@@ -40,18 +38,17 @@ def freshness_status(days_remaining: int) -> dict:
     return {'label': 'unknown', 'urgency': 'unknown'}
 
 
-def freshness_scale(days_remaining: int | None, typical_shelf_life: int | None) -> int | None:
+def freshness_scale(days_remaining: int | None, typical_shelf_life: int | None) -> int:
     """
     Convert days_remaining into a 0–10 freshness scale.
     Uses the item's typical_shelf_life as the reference for 10/10.
-    Falls back to a generic curve if typical_shelf_life is unknown.
+    Falls back to a logarithmic curve if typical_shelf_life is unknown.
+    Always returns an integer (never None).
 
-      10 = just bought / peak fresh (>= 90% of shelf life remaining)
+      10 = just bought / peak fresh (>= 100% of shelf life remaining)
        0 = spoiled / should be discarded
     """
-    if days_remaining is None:
-        return None
-    if days_remaining <= 0:
+    if days_remaining is None or days_remaining <= 0:
         return 0
 
     if typical_shelf_life and typical_shelf_life > 0:
@@ -146,13 +143,23 @@ def format_quantity(count: int | None, unit: str, name: str,
         'egg': 55, 'butter': 200, 'cheese': 200,
         'yogurt': 150, 'milk': 250,
     }
+    # Weight item with no gram data — derive from name lookup or use a category default
     qty = count if count and count > 0 else 1
     lower = name.lower()
     grams_each = next((v for k, v in PER_UNIT_GRAMS.items() if k in lower), None)
     if grams_each:
         return f"~{qty * grams_each}g"
 
-    return "~?g (estimate unclear)"
+    # Last-resort category defaults (grams per unit)
+    CATEGORY_GRAM_DEFAULTS = {
+        'meat': 250, 'dairy': 200, 'vegetable': 150,
+        'fruit': 150, 'bread': 80, 'meal': 400,
+        'snack': 50, 'condiment': 200, 'other': 100,
+    }
+    fallback_g = CATEGORY_GRAM_DEFAULTS.get(
+        next((k for k in CATEGORY_GRAM_DEFAULTS if k in lower), ''), 150
+    )
+    return f"~{qty * fallback_g}g (est.)"
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -167,44 +174,150 @@ def load_image(path: str) -> tuple[bytes, str]:
         return f.read(), media_type
 
 
+# ── Category-based fallback shelf lives (days) ────────────────────────────────
+# Used when the model still returns null despite the prompt instructions.
+
+CATEGORY_SHELF_LIFE_DEFAULTS = {
+    'fruit':     10,
+    'vegetable': 10,
+    'meat':       3,
+    'dairy':      7,
+    'bread':      5,
+    'meal':       3,
+    'drink':     14,
+    'snack':     60,
+    'condiment': 90,
+    'dessert':    4,
+    'other':      7,
+}
+
+# More granular keyword overrides checked before category default
+NAME_SHELF_LIFE_DEFAULTS = {
+    'potato': 30, 'sweet potato': 21, 'yam': 21,
+    'carrot': 21, 'onion': 60, 'garlic': 120, 'shallot': 30,
+    'apple': 14, 'pear': 10, 'orange': 14, 'grapefruit': 21,
+    'lemon': 21, 'lime': 21, 'banana': 7, 'grape': 7,
+    'strawberry': 5, 'blueberry': 7, 'raspberry': 3,
+    'mango': 7, 'pineapple': 5, 'melon': 7, 'watermelon': 7,
+    'peach': 5, 'plum': 5, 'cherry': 7, 'kiwi': 10,
+    'avocado': 5, 'fig': 3, 'apricot': 5,
+    'tomato': 7, 'cucumber': 7, 'zucchini': 7, 'bell pepper': 10,
+    'broccoli': 7, 'cauliflower': 7, 'cabbage': 21,
+    'lettuce': 7, 'spinach': 5, 'kale': 7, 'celery': 14,
+    'mushroom': 7, 'corn': 3, 'asparagus': 4, 'green bean': 7,
+    'beet': 14, 'turnip': 14, 'parsnip': 14, 'leek': 10,
+    'eggplant': 7, 'artichoke': 7, 'brussel sprout': 7,
+    'kimchi': 14, 'sauerkraut': 30,
+    'raw chicken': 2, 'raw beef': 3, 'raw pork': 3, 'raw fish': 2,
+    'cooked chicken': 4, 'cooked beef': 4,
+    'milk': 7, 'yogurt': 14, 'hard cheese': 30, 'soft cheese': 7,
+    'egg': 35, 'butter': 30,
+    'bread': 7, 'bagel': 5, 'croissant': 2, 'tortilla': 7,
+}
+
+def get_shelf_life_default(name: str, category: str) -> int:
+    """Return a best-guess typical shelf life in days based on name keywords."""
+    lower = name.lower()
+    # Check name keywords first (longest match wins)
+    for key in sorted(NAME_SHELF_LIFE_DEFAULTS, key=len, reverse=True):
+        if key in lower:
+            return NAME_SHELF_LIFE_DEFAULTS[key]
+    # Fall back to category default
+    return CATEGORY_SHELF_LIFE_DEFAULTS.get(category, 7)
+
+
+def apply_freshness_fallbacks(item: dict) -> dict:
+    """
+    Fill in reasonable defaults for any null/missing fields so the final
+    JSON output contains no null values except where genuinely not applicable.
+    """
+    name     = item.get('name', '')
+    category = item.get('category', 'other')
+
+    # ── typical_shelf_life ────────────────────────────────────────────────────
+    shelf_life = item.get('typical_shelf_life')
+    if not isinstance(shelf_life, int) or shelf_life <= 0:
+        shelf_life = get_shelf_life_default(name, category)
+        item['typical_shelf_life'] = shelf_life
+
+    # ── days_remaining ────────────────────────────────────────────────────────
+    days = item.get('days_remaining')
+    if not isinstance(days, int):
+        item['days_remaining'] = shelf_life
+        existing_notes = item.get('freshness_notes') or ''
+        if existing_notes:
+            item['freshness_notes'] = (
+                existing_notes.rstrip('.')
+                + f' No spoilage cues detected; estimated at full shelf life ({shelf_life} days).'
+            )
+        else:
+            item['freshness_notes'] = (
+                f'No visible spoilage detected. Freshness estimated at full '
+                f'shelf life for this item ({shelf_life} days).'
+            )
+
+    # ── count ─────────────────────────────────────────────────────────────────
+    # Null count is fine for weight/bulk items; set to 1 as a minimum for
+    # countable items so downstream quantity formatting always has something.
+    if item.get('count') is None:
+        unit_hint = smart_unit(name, category)
+        if unit_hint == 'count':
+            item['count'] = 1
+
+    # ── estimated_grams ───────────────────────────────────────────────────────
+    # For weight-category items the model sometimes leaves this null.
+    # Try to derive it from count + name lookup; leave null only for whole
+    # countable items where gram display isn't meaningful.
+    if item.get('estimated_grams') is None:
+        unit_hint = smart_unit(name, category)
+        cnt = item.get('count') or 1
+        if unit_hint == 'weight':
+            derived = gram_estimate_for_count(cnt, name)
+            if derived:
+                item['estimated_grams'] = derived
+            else:
+                item.pop('estimated_grams', None)  # remove rather than store null
+        else:
+            item.pop('estimated_grams', None)  # grams already shown inside quantity string
+
+    # ── limiting_ingredient ───────────────────────────────────────────────────
+    # Remove the key entirely for non-meal items so it doesn't appear as null.
+    if category != 'meal':
+        item.pop('limiting_ingredient', None)
+    elif item.get('limiting_ingredient') is None:
+        item['limiting_ingredient'] = 'unknown ingredient'
+
+    # ── freshness_notes ───────────────────────────────────────────────────────
+    if not item.get('freshness_notes'):
+        item['freshness_notes'] = (
+            f'No visible spoilage or quality issues detected for this {category}.'
+        )
+
+    return item
+
+
 # ── Enrich a single raw item dict ─────────────────────────────────────────────
 
-def enrich_item(item: dict, purchase_date: datetime) -> dict:
-    """Add computed fields (status, scale, dates, quantity) to a raw AI item.
+def enrich_item(item: dict, now: datetime) -> dict:
+    """Add computed fields (status, scale, dates, quantity) to a raw AI item."""
+    # Apply fallbacks FIRST so all downstream logic sees real integers
+    item = apply_freshness_fallbacks(item)
 
-    The AI prompt now tells the model today's date and exactly how many days
-    have elapsed since purchase, and instructs it to return days_remaining
-    relative to TODAY — not the purchase date. So we no longer subtract elapsed
-    time here; we trust the model's figure and compute expiration as
-    today + days_remaining.
-    """
-    days_remaining = item.get('days_remaining')
-    shelf_life     = item.get('typical_shelf_life')
-    name           = item.get('name', '')
-    category       = item.get('category', 'other')
-    estimated_g    = item.get('estimated_grams')
+    days       = item.get('days_remaining')
+    shelf_life = item.get('typical_shelf_life')
+    name       = item.get('name', '')
+    category   = item.get('category', 'other')
+    estimated_g = item.get('estimated_grams')
 
-    now = datetime.now()
+    status = freshness_status(days)
+    item['freshness_status']  = status['label']
+    item['freshness_urgency'] = status['urgency']
 
-    if days_remaining is not None:
-        days_remaining = max(0, days_remaining)
-        item['days_remaining'] = days_remaining
-        status = freshness_status(days_remaining)
-        item['freshness_status']  = status['label']
-        item['freshness_urgency'] = status['urgency']
-    else:
-        item['freshness_status']  = 'unknown'
-        item['freshness_urgency'] = 'unknown'
+    item['freshness_scale'] = freshness_scale(days, shelf_life)
+    item['date_added']      = now.strftime('%Y-%m-%d %H:%M')
 
-    item['freshness_scale'] = freshness_scale(days_remaining, shelf_life)
-    item['date_added']      = purchase_date.strftime('%Y-%m-%d')
-
-    if days_remaining is not None:
-        # Expiration anchored to today since AI already baked in elapsed storage time
-        expiry = now + timedelta(days=days_remaining)
-        item['expiration_date'] = expiry.strftime('%Y-%m-%d')
-    else:
-        item['expiration_date'] = None
+    expiry = now + timedelta(days=days)
+    item['expiration_date'] = expiry.strftime('%Y-%m-%d')
 
     unit = smart_unit(name, category)
     if estimated_g and estimated_g > 0:
@@ -219,106 +332,95 @@ def enrich_item(item: dict, purchase_date: datetime) -> dict:
 
 # ── Bedrock: multi-item detection + freshness ─────────────────────────────────
 
-def detect_all_items(image_bytes: bytes, media_type: str = 'image/jpeg',
-                     purchase_date: datetime | None = None) -> list[dict]:
-    if purchase_date is None:
-        purchase_date = datetime.now()
-
+def detect_all_items(image_bytes: bytes, media_type: str = 'image/jpeg') -> list[dict]:
     image_b64 = base64.b64encode(image_bytes).decode()
 
-    today        = datetime.now().date()
-    elapsed_days = (today - purchase_date.date()).days
-    today_str    = today.strftime('%B %d, %Y')           # e.g. "April 18, 2026"
-    bought_str   = purchase_date.strftime('%B %d, %Y')   # e.g. "March 28, 2026"
+    prompt = """You are a food safety and produce expert. Your ONLY job is to report exactly what you see in this image. Do NOT rely on assumptions, prior knowledge of typical states, or expectations about how a food usually looks. Every judgment must be grounded in specific, visible pixels in this image.
 
-    if elapsed_days == 0:
-        storage_context = (
-            f"TODAY'S DATE: {today_str}\n"
-            f"PURCHASE DATE: {bought_str} (purchased today — items are fresh from the store).\n"
-            f"Use standard shelf-life values from date of purchase. Adjust only for any visible "
-            f"deterioration already present in the image.\n"
-            f"days_remaining should reflect how many days are left FROM TODAY."
-        )
-    else:
-        elapsed_label = f"{elapsed_days} day{'s' if elapsed_days != 1 else ''}"
-        storage_context = (
-            f"TODAY'S DATE: {today_str}\n"
-            f"PURCHASE DATE: {bought_str} ({elapsed_label} ago).\n"
-            f"IMPORTANT: These items have already been stored for {elapsed_label}. "
-            f"Factor this elapsed storage time directly into your days_remaining estimate — "
-            f"it must reflect how many days are left FROM TODAY, not from the purchase date.\n"
-            f"For example: if bananas typically last 7 days from purchase and {elapsed_label} "
-            f"have passed, days_remaining should be approximately {max(0, 7 - elapsed_days)} "
-            f"(adjusted further for any visible deterioration you can see in the image).\n"
-            f"Use both the elapsed time AND visual cues together to give the most accurate "
-            f"days_remaining value possible. If the item looks worse than expected for "
-            f"{elapsed_label} of storage, lower your estimate accordingly."
-        )
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ABSOLUTE RULES — read before doing anything else
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. DESCRIBE ONLY WHAT IS VISIBLE. If a banana is green, say it is green. If skin is smooth, say so. Never project a "typical" appearance onto what you see.
+2. NEVER use generic or template language. Every freshness_notes field must describe THIS specific item in THIS image — color, texture, surface condition as they actually appear.
+3. DO NOT invent spoilage that is not visible. Do not mention browning, spots, or wilting unless you can clearly see them.
+4. DO NOT deny freshness that IS visible. If an item looks crisp, firm, bright — say so and score accordingly.
+5. days_remaining and typical_shelf_life must ALWAYS be integers. NEVER null.
 
-    prompt = f"""You are a food safety and produce expert. Look carefully at this image.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 1 — MEAL vs INDIVIDUAL ITEMS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Is food in this image a PLATED MEAL (multiple ingredients combined and served together — pasta, burger, stir-fry, salad bowl, pizza, plate of food)?
+  → YES: treat the entire dish as ONE item, category "meal". Rate freshness by the most perishable ingredient visible. Name the limiting ingredient in limiting_ingredient.
+  → NO: list each food item separately.
 
---- PURCHASE & STORAGE CONTEXT ---
-{storage_context}
-----------------------------------
+Loose, unprepared, or packaged items sitting near each other are NOT a meal — list individually.
 
-STEP 1 — DECIDE: Is any food in the image a PLATED MEAL (i.e. multiple ingredients
-combined and served together as a dish — e.g. pasta with sauce, a burger, a stir-fry,
-a salad bowl, a pizza slice, a plate of food)? If so, treat that entire dish as ONE
-meal item. DO NOT list its individual ingredients separately. Judge the freshness of
-the meal by the ingredient that will go bad the soonest, and call out which ingredient
-that is in freshness_notes.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 2 — FOR EACH ITEM, REPORT:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. name — specific (e.g. "Granny Smith Apple", not just "Apple")
+2. category — fruit | vegetable | meat | dairy | bread | meal | drink | snack | condiment | dessert | other
+3. confidence — 0–100, your confidence in the identification
+4. count — integer count of visible whole units; null if not applicable
+5. estimated_grams — required for meals, portioned/cut items, loose bulk. Null for clearly whole countable items (e.g. 3 whole apples).
+6. Freshness fields — all based on what you can SEE right now:
 
-Separate, unprepared, or packaged items that happen to be sitting near each other
-(e.g. loose apples, raw vegetables, a bottle of sauce) are NOT a meal — list those
-individually.
+   days_remaining (integer, NEVER null):
+     Derive this ENTIRELY from visible evidence:
+     - What COLOR is the skin/flesh? (green, yellow, yellow-green, brown patches, black spots?)
+     - What is the TEXTURE? (firm, soft, wrinkled, shriveled, slimy?)
+     - Are there visible DEFECTS? (mold, bruises, cuts, dehydration, slime?)
+     Map your visual observations to days using this scale:
+       Mold/slime/collapsing = 0
+       Heavily wrinkled/very soft/strong discoloration = 1–2
+       Some spots/soft patches/yellowing = 3–5
+       Minor marks, slightly past peak = 6–9
+       Firm, bright color, no defects, peak condition = use typical_shelf_life
+     For green (unripe) items: add extra days — green bananas = 5–7+ days, unripe avocados = 4–6 days.
 
-STEP 2 — For EVERY distinct item (or meal):
+   typical_shelf_life (integer, NEVER null):
+     The standard maximum shelf life for this item type at room temp or refrigerated (whichever is normal for it):
+       potato: 30 | sweet potato: 21 | carrot: 21 | onion: 60 | garlic: 120
+       apple: 14  | banana: 7        | orange: 14 | grape: 7  | strawberry: 5
+       tomato: 7  | lettuce: 7       | spinach: 5 | broccoli: 7 | cucumber: 7
+       bell pepper: 10 | zucchini: 7 | mushroom: 7 | celery: 14
+       raw chicken: 2  | raw beef: 3 | raw fish: 2 | cooked leftovers: 4
+       egg: 35 | milk: 7 | yogurt: 14 | hard cheese: 30 | butter: 30 | bread: 7
 
-1. Name it specifically (e.g. "Spaghetti Bolognese", "Granny Smith Apple")
-2. Categorize: fruit, vegetable, meat, dairy, bread, meal, drink, snack, condiment, dessert, or other
-3. Confidence in the identification (0-100)
-4. Count of visible units (integer; null if not meaningful for this item)
-5. estimated_grams: required for meals, weight items, cut/portioned items, or loose bulk items.
-   Null only for clearly whole countable items (e.g. 3 apples, 2 bananas).
-6. Freshness assessment — using the purchase date and elapsed storage time above,
-   combined with what you can see in the image:
-   - days_remaining: integer — how many days are left FROM TODAY before the item should
-     be discarded. Account for both elapsed storage time and any visible deterioration.
-     For a MEAL, use the days_remaining of its LEAST fresh ingredient.
-   - typical_shelf_life: integer — normal total shelf life from purchase for this item
-     in good condition (used as a reference baseline, not the answer itself).
-     For a MEAL, use the shelf life of the limiting ingredient.
-   - limiting_ingredient: (meals only) name of the ingredient driving the freshness rating
-   - freshness_notes: 1-2 sentences explaining your reasoning. Mention both the storage
-     time elapsed and any visual cues that influenced your rating.
+   limiting_ingredient — meals only, the ingredient driving the freshness rating; null otherwise
 
-Visual freshness signals: color changes, texture, wilting, mold, bruising, dehydration.
-If you cannot assess freshness, set days_remaining and typical_shelf_life to null.
+   freshness_notes — 2–3 sentences. MANDATORY CONTENT:
+     • Sentence 1: Describe the ACTUAL COLOR and TEXTURE you see right now.
+     • Sentence 2: List any visible defects (or explicitly state none are visible).
+     • Sentence 3: Explain how those observations led to your days_remaining estimate.
+     No generic statements. No assumptions. Only describe what is in this image.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Reply ONLY with a valid JSON array. No markdown, no extra text.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 [
-  {{
-    "name": "Spaghetti Bolognese",
-    "category": "meal",
-    "confidence": 91,
-    "count": 1,
-    "estimated_grams": 480,
-    "days_remaining": 1,
-    "typical_shelf_life": 3,
-    "limiting_ingredient": "ground beef",
-    "freshness_notes": "Purchased {elapsed_days} day(s) ago; meat sauce shows slight darkening. Ground beef drives the rating — use today or tomorrow."
-  }},
-  {{
+  {
     "name": "Banana",
     "category": "fruit",
     "confidence": 97,
     "count": 3,
     "estimated_grams": null,
-    "days_remaining": 0,
+    "days_remaining": 6,
     "typical_shelf_life": 7,
     "limiting_ingredient": null,
-    "freshness_notes": "Purchased {elapsed_days} day(s) ago; significant browning and dark spots confirm overripeness — should be used immediately or discarded."
-  }}
+    "freshness_notes": "Skin is uniformly yellow-green with no brown spots or dark patches visible. Surface appears smooth and firm with no wrinkling or soft areas. The green tinge indicates the bananas are not yet fully ripe, adding 1–2 days beyond a fully yellow banana."
+  },
+  {
+    "name": "Russet Potato",
+    "category": "vegetable",
+    "confidence": 95,
+    "count": 3,
+    "estimated_grams": null,
+    "days_remaining": 28,
+    "typical_shelf_life": 30,
+    "limiting_ingredient": null,
+    "freshness_notes": "Skin is dry and light brown with a slightly rough texture typical of fresh russets. No green patches, soft spots, sprouting eyes, or surface damage are visible. Item appears freshly harvested or recently purchased with full shelf life remaining."
+  }
 ]"""
 
     fmt = media_type.split("/")[1]
@@ -355,10 +457,11 @@ Reply ONLY with a valid JSON array. No markdown, no extra text.
                 text = text[4:]
 
         parsed = json.loads(text)
+        now    = datetime.now()
 
         for item in parsed:
             item['source'] = 'bedrock'
-            enrich_item(item, purchase_date)
+            enrich_item(item, now)
 
         return parsed
 
@@ -399,24 +502,13 @@ def freshness_bar(scale: int | None, width: int = 10) -> str:
     bar    = '█' * filled + '░' * (width - filled)
     return f"[{bar}] {scale}/10"
 
-def print_results(items: list[dict], image_path: str,
-                  purchase_date: datetime | None = None) -> None:
+def print_results(items: list[dict], image_path: str) -> None:
     if not items:
         print("\n  No food items detected.")
         return
 
     print(f"\n{'─'*60}")
     print(f"  Found {len(items)} item(s) in: {Path(image_path).name}")
-    if purchase_date:
-        today = datetime.now().date()
-        elapsed = (today - purchase_date.date()).days
-        if elapsed == 0:
-            label = "purchased today"
-        elif elapsed == 1:
-            label = "purchased yesterday"
-        else:
-            label = f"purchased {elapsed} day(s) ago"
-        print(f"  Date purchased : {purchase_date.strftime('%Y-%m-%d')}  ({label})")
     print(f"{'─'*60}")
 
     by_cat: dict[str, list] = {}
@@ -452,7 +544,7 @@ def print_results(items: list[dict], image_path: str,
             print(f"        Scale      : {bar}")
             if limiting:
                 print(f"        Limited by : {limiting}")
-            print(f"        Purchased  : {added}")
+            print(f"        Date added : {added}")
             print(f"        Expires    : {expiry if expiry else 'unknown'}")
             if notes:
                 print(f"        Visual cues: {notes}")
@@ -461,18 +553,6 @@ def print_results(items: list[dict], image_path: str,
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
-
-def parse_date(value: str) -> datetime:
-    """Parse a date string in YYYY-MM-DD or MM/DD/YYYY format."""
-    for fmt in ('%Y-%m-%d', '%m/%d/%Y', '%m-%d-%Y'):
-        try:
-            return datetime.strptime(value, fmt)
-        except ValueError:
-            continue
-    raise argparse.ArgumentTypeError(
-        f"Invalid date '{value}'. Use YYYY-MM-DD or MM/DD/YYYY."
-    )
-
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -483,17 +563,6 @@ def parse_args():
     parser.add_argument('image', help='Path to the image file (jpg, png, webp)')
     parser.add_argument('--json', '-j', action='store_true',
                         help='Output raw JSON instead of formatted text')
-    parser.add_argument(
-        '--date-purchased', '-d',
-        metavar='DATE',
-        type=parse_date,
-        default=None,
-        help=(
-            'Date the items were purchased (default: today). '
-            'Accepts YYYY-MM-DD or MM/DD/YYYY. '
-            'Example: --date-purchased 2025-07-10'
-        ),
-    )
     return parser.parse_args()
 
 
@@ -510,28 +579,25 @@ def main():
               "Use jpg, png, webp, or gif.", file=sys.stderr)
         sys.exit(1)
 
-    purchase_date = args.date_purchased or datetime.now()
-
-    # Warn if the purchase date is in the future
-    if purchase_date.date() > datetime.now().date():
-        print(
-            f"  Warning: purchase date {purchase_date.strftime('%Y-%m-%d')} is in the future. "
-            "Days-remaining will be inflated.", file=sys.stderr
-        )
-
     print(f"\n  Loading image: {path}")
     image_bytes, media_type = load_image(str(path))
     print(f"    Size: {len(image_bytes):,} bytes  |  Type: {media_type}")
-    print(f"  Purchase date : {purchase_date.strftime('%Y-%m-%d')}")
     print("  Running Bedrock (Nova Pro) detection...")
 
-    items = detect_all_items(image_bytes, media_type, purchase_date=purchase_date)
+    items = detect_all_items(image_bytes, media_type)
 
     if args.json:
         print(json.dumps(items, indent=2))
     else:
-        print_results(items, str(path), purchase_date=purchase_date)
+        print_results(items, str(path))
 
 
 if __name__ == '__main__':
     main()
+
+def lambda_handler(event, context):
+    # TODO implement
+    return {
+        'statusCode': 200,
+        'body': json.dumps('Hello from Lambda!')
+    }
