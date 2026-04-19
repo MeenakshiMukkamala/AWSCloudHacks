@@ -222,9 +222,7 @@ function Landing({ ingredients, setIngredients, onLogout }) {
                           </div>
 
                           <strong>
-                            {item.days_remaining != null
-                              ? `${item.days_remaining}d left`
-                              : expiration
+                            {expiration
                               ? `Expires ${expiration}`
                               : "Freshness unknown"}
                           </strong>
@@ -239,12 +237,6 @@ function Landing({ ingredients, setIngredients, onLogout }) {
                         {item.freshness_notes && (
                           <p className="recipe-line">
                             Details: <span>{item.freshness_notes}</span>
-                          </p>
-                        )}
-
-                        {expiration && (
-                          <p className="recipe-line">
-                            Expires: <span>{expiration}</span>
                           </p>
                         )}
                       </article>
