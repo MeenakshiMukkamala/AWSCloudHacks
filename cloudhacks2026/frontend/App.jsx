@@ -184,6 +184,7 @@ function Landing({ ingredients, setIngredients, onLogout }) {  const navigate = 
 
                   return Number(aDays) - Number(bDays);
                 })
+                .slice(0, 4)
                 .map((item, idx) => {
                   const status =
                     item.freshness_status ||
