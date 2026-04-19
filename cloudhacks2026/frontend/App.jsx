@@ -309,15 +309,14 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const savedEmail = localStorage.getItem("userEmail");
+  const sessionEmail = sessionStorage.getItem("userEmail");
 
-    if (savedEmail) {
-      const normalized = savedEmail.trim().toLowerCase();
-      setUserEmail(normalized);
-    }
+  if (sessionEmail) {
+    setUserEmail(sessionEmail);
+  }
 
-    setLoading(false);
-  }, []);
+  setLoading(false);
+}, []);
   
   useEffect(() => {
     const fetchIngredients = async () => {
@@ -349,16 +348,17 @@ export default function App() {
     fetchIngredients();
   }, [userEmail]);
   const handleLogin = (email) => {
-    const normalized = email.trim().toLowerCase();
-    localStorage.setItem("userEmail", normalized);
-    setUserEmail(normalized);
-  };
+  const normalized = email.trim().toLowerCase();
 
-  const handleLogout = () => {
-    localStorage.removeItem("userEmail");
-    setUserEmail(null);
-    setIngredients([]);
-  };
+      // use sessionStorage instead
+      sessionStorage.setItem("userEmail", normalized);
+      setUserEmail(normalized);
+    };
+    const handleLogout = () => {
+      sessionStorage.removeItem("userEmail");
+      setUserEmail(null);
+      setIngredients([]);
+    };
 
   if (loading) return <div className="loader">Loading...</div>;
 
