@@ -9,6 +9,7 @@ import {
 
 import Login from "./Login";
 import Main from "./main";
+import IngredientsView from "./IngredientsView";
 import "./App.css";
 
 const API_URL = "https://y8hng6eo97.execute-api.us-west-2.amazonaws.com";
@@ -142,6 +143,13 @@ function Landing({ ingredients, setIngredients, onLogout }) {  const navigate = 
             onClick={() => navigate("/app")}
           >
             Scan My Ingredients
+          </button>
+
+          <button
+            className="secondary-button" 
+            onClick={() => navigate("/inventory")}
+          >
+            View My Ingredients
           </button>
         </div>
         </div>
@@ -397,6 +405,17 @@ export default function App() {
                 onLogout={handleLogout}
                 setAppIngredients={setIngredients}
               />
+            ) : (
+              <Navigate to="/" />
+            )
+          }
+        />
+
+        <Route
+          path="/inventory"
+          element={
+            userEmail ? (
+              <IngredientsView userEmail={userEmail} />
             ) : (
               <Navigate to="/" />
             )

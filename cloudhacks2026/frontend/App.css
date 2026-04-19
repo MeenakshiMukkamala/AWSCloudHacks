@@ -124,7 +124,7 @@ button {
 
 .hero-text {
   max-width: 48ch;
-  margin: 25px 0 0;
+  margin: 20px 0 0;
   font-size: 1.05rem;
   justify-self: center;
 }
@@ -171,6 +171,69 @@ button {
   display: flex;
   flex-direction: column;
   justify-content: center;
+}
+
+/* Custom formatting for the detailed ingredient card */
+.detailed-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.side-metrics {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.metric-pill {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: #fffaf4;
+  white-space: nowrap;
+}
+
+.metric-pill.subtle {
+  background: rgba(31, 58, 46, 0.08);
+  color: var(--muted);
+}
+
+/* Visual Freshness Bar */
+.freshness-visual-container {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(31, 58, 46, 0.08);
+}
+
+.freshness-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.visual-bar-bg {
+  width: 100%;
+  height: 8px;
+  background-color: var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.visual-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.4s ease-out;
 }
 
 .stat-row {
@@ -228,7 +291,9 @@ button {
 
 .ingredient-list {
   display: grid;
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px; /* Space between the cards */
+  margin-top: 16px;
 }
 
 .ingredient-card {
