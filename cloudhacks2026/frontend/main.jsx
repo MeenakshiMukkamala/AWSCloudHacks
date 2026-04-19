@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import apiClient from "./api";
 import "./main.css";
 
-export default function Main({ userEmail, onLogout, setAppIngredients }) {
+export default function Main({ userEmail, setAppIngredients }) {
   
   const [uploadedImage, setUploadedImage] = useState(null);
   const [ingredients, setIngredients] = useState([]);
@@ -134,8 +134,8 @@ const saveIngredients = async () => {
             textAlign: "center",
           }}
         >
-          <p className="eyebrow">Your kitchen</p>
-          <h1>Scan your ingredients</h1>
+          <p className="eyebrow">Your Kitchen</p>
+          <h1>Scan Ingredients</h1>
           <p className="hero-text">
             Upload a photo to track freshness and get meal ideas.
             (Please upload images that are '.jpg', '.jpeg', '.png', '.webp', '.gif' and less than 10MB only.)
@@ -157,10 +157,6 @@ const saveIngredients = async () => {
 
               <button className="primary-button" onClick={fetchIngredients}>
                 View My Ingredients
-              </button>
-
-              <button className="secondary-button" onClick={onLogout}>
-                Sign Out
               </button>
             </div>
           </div>

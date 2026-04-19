@@ -13,7 +13,7 @@ import "./App.css";
 
 const API_URL = "https://y8hng6eo97.execute-api.us-west-2.amazonaws.com";
 
-function Landing({ ingredients, setIngredients }) {  const navigate = useNavigate();
+function Landing({ ingredients, setIngredients, onLogout }) {  const navigate = useNavigate();
 
   const [meal, setMeal] = useState(null);
   const [mealLoading, setMealLoading] = useState(false);
@@ -119,6 +119,14 @@ function Landing({ ingredients, setIngredients }) {  const navigate = useNavigat
 
   return (
     <main className="app-shell">
+      <nav className="app-nav">
+        <div className="nav-logo-section">
+          <img className="nav-logo-img" src="/favicon.png" alt="Scrapless Logo"/>
+          <h1 className="nav-logo-text">Scrapless</h1>
+        </div>
+        <button className="secondary-button" onClick={onLogout}> Sign Out </button>
+      </nav>
+
       <section className="hero">
         <div className="hero-copy">
           <p className="eyebrow">Scrapless kitchen planner</p>
@@ -133,7 +141,7 @@ function Landing({ ingredients, setIngredients }) {  const navigate = useNavigat
             className="primary-button"
             onClick={() => navigate("/app")}
           >
-            Scan my ingredients
+            Scan My Ingredients
           </button>
         </div>
         </div>
@@ -372,6 +380,7 @@ export default function App() {
                 <Landing
                   ingredients={ingredients}
                   setIngredients={setIngredients}
+                  onLogout={handleLogout}
                 />
               ) : (
                 <Login onLogin={handleLogin} />
