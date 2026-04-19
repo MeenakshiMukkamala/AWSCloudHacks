@@ -44,6 +44,12 @@
   margin-bottom: 28px;
 }
 
+.login-img {
+  width: 60px; 
+  height: 60px; 
+  margin-bottom: 5px;
+}
+
 .login-logo {
   font-family: Georgia, "Times New Roman", serif;
   font-size: 2.2rem;
@@ -73,6 +79,7 @@
 .form-group label {
   font-size: 0.8rem;
   font-weight: 700;
+  margin-left: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--accent-deep);

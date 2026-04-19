@@ -95,6 +95,7 @@ export default function Login({ onLogin }) {
     <div className="login-container">
       <div className="login-card">
         <div className="login-header">
+          <img className="login-img" src="/favicon.png" alt="Scrapless Logo"/>
           <h1 className="login-logo">Scrapless</h1>
           <p className="login-tagline">Reduce food waste, maximize freshness</p>
         </div>
