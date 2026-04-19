@@ -11,11 +11,44 @@ import Login from "./Login";
 import Main from "./main";
 import "./App.css";
 
-function Landing({ ingredients, setIngredients }) 
-{
+const API_URL = "https://y8hng6eo97.execute-api.us-west-2.amazonaws.com";
+
+function Landing({ ingredients }) {
   const navigate = useNavigate();
 
-  return (
+  const [meal, setMeal] = useState(null);
+  const [mealLoading, setMealLoading] = useState(false);
+
+  // 🔥 Fetch meal using meal_planner Lambda
+  useEffect(() => {
+  const fetchMeal = async () => {
+    const email = localStorage.getItem("userEmail");
+    if (!email) return;
+
+    setMealLoading(true);
+
+    try {
+      const res = await fetch(
+        `${API_URL}/get-meal?user_id=${encodeURIComponent(email)}&action=suggest&meal_type=any`
+      );
+
+      const data = await res.json();
+      console.log("MEAL RESPONSE:", data);
+
+      if (data.meal) {
+        setMeal(data.meal);
+      }
+    } catch (err) {
+      console.error("Meal fetch error:", err);
+    } finally {
+      setMealLoading(false);
+    }
+  };
+
+  fetchMeal();
+}, [ingredients]);  
+
+return (
     <main className="app-shell">
       <section className="hero">
         <div className="hero-copy">
@@ -29,7 +62,7 @@ function Landing({ ingredients, setIngredients })
           <div className="hero-actions">
             <button
               className="primary-button"
-              onClick={() => navigate("/login")}
+              onClick={() => navigate("/app")}
             >
               Scan my ingredients
             </button>
@@ -39,8 +72,9 @@ function Landing({ ingredients, setIngredients })
             </button>
           </div>
         </div>
-      </section>  
+      </section>
 
+      {/* INGREDIENTS */}
       <section className="content-grid">
         <section className="card">
           <div className="section-heading">
@@ -52,69 +86,134 @@ function Landing({ ingredients, setIngredients })
 
           {ingredients.length > 0 ? (
             <div className="ingredient-list">
-              {ingredients
+              {[...ingredients]
                 .sort((a, b) => {
-                  // Sort by days_remaining in ascending order (least fresh first)
-                  if (a.days_remaining === null) return 1;
-                  if (b.days_remaining === null) return -1;
-                  return a.days_remaining - b.days_remaining;
+                  const aDays = a.days_remaining ?? null;
+                  const bDays = b.days_remaining ?? null;
+
+                  if (aDays === null && bDays !== null) return -1;
+                  if (bDays === null && aDays !== null) return 1;
+                  if (aDays === null && bDays === null) return 0;
+
+                  return Number(aDays) - Number(bDays);
                 })
-                .map((item, idx) => (
-                <article className="ingredient-card" key={idx}>
-                  <div className="ingredient-top">
-                    <div>
-                      <h3>{item.name}</h3>
-                      <p>{item.freshness_status || "Unknown freshness"}</p>
-                    </div>
-                    <strong>{item.days_remaining !== null ? `${item.days_remaining}d left` : "Freshness unknown"}</strong>
-                  </div>
+                .map((item, idx) => {
+                  const status =
+                    item.freshness_status ||
+                    item.status ||
+                    item.freshness_notes ||
+                    "Unknown freshness";
 
-                  {item.quantity && (
-                    <p className="recipe-line">
-                      Quantity: <span>{item.quantity}</span>
-                    </p>
-                  )}
+                  const expiration =
+                    item.expiration_date ||
+                    item.estimated_expiration ||
+                    null;
 
-                  {item.freshness_notes && (
-                    <p className="recipe-line">
-                      Details: <span>{item.freshness_notes}</span>
-                    </p>
-                  )}
+                  const quantity =
+                    item.quantity ||
+                    (item.count && item.count !== -1
+                      ? `${item.count} items`
+                      : item.weight
+                      ? `${item.weight}`
+                      : null);
 
-                  {item.expiration_date && (
-                    <p className="recipe-line">
-                      Expires: <span>{item.expiration_date}</span>
-                    </p>
-                  )}
+                  return (
+                    <article
+                      className="ingredient-card"
+                      key={item.ingredient_id || idx}
+                    >
+                      <div className="ingredient-top">
+                        <div>
+                          <h3>{item.name || "Unnamed item"}</h3>
+                          <p>{status}</p>
+                        </div>
 
-                  {item.category && (
-                    <p className="recipe-line">
-                      Category: <span>{item.category}</span>
-                    </p>
-                  )}
-                </article>
-              ))}
+                        <strong>
+                          {item.days_remaining != null
+                            ? `${item.days_remaining}d left`
+                            : expiration
+                            ? `Expires ${expiration}`
+                            : "Freshness unknown"}
+                        </strong>
+                      </div>
+
+                      {quantity && (
+                        <p className="recipe-line">
+                          Quantity: <span>{quantity}</span>
+                        </p>
+                      )}
+
+                      {item.freshness_notes && (
+                        <p className="recipe-line">
+                          Details: <span>{item.freshness_notes}</span>
+                        </p>
+                      )}
+
+                      {expiration && (
+                        <p className="recipe-line">
+                          Expires: <span>{expiration}</span>
+                        </p>
+                      )}
+                    </article>
+                  );
+                })}
             </div>
           ) : (
             <div className="ingredient-list empty-state">
-              <p className="empty-message">Upload or take a photo to see your ingredients here</p>
+              <p className="empty-message">
+                Upload or take a photo to see your ingredients here
+              </p>
             </div>
           )}
         </section>
-
-        <section className="card accent-card">
-          <p className="section-label">Tonight's idea</p>
-          <h2>Your meal suggestions</h2>
-
-          <p className="accent-copy">
-            Once you upload a photo of your ingredients, we'll suggest recipes using items that need attention.
-          </p>
-
-          <div className="steps empty-state">
-            <p className="empty-message">Sign in and upload ingredients to get personalized meal suggestions</p>
-          </div>
-        </section>
       </section>
+
+      {/* 🍽 MEAL PLAN */}
+      <section className="card accent-card">
+        <p className="section-label">Tonight's dinner</p>
+        <h2>Your meal suggestion</h2>
+
+        {mealLoading ? (
+  <div className="steps">
+    <p className="empty-message">
+      Finding the best meal for your ingredients...
+    </p>
+  </div>
+) : meal ? (
+  <div className="meal-card">
+    <h3>{meal.name}</h3>
+
+    {meal.description && (
+      <p className="accent-copy">{meal.description}</p>
+    )}
+
+    {meal.ingredients_used && (
+      <p className="recipe-line">
+        Uses:{" "}
+        <span>
+          {meal.ingredients_used.map((i) => i.name).join(", ")}
+        </span>
+      </p>
+    )}
+
+    {meal.steps && (
+      <div className="recipe-steps">
+        <p className="recipe-line"><strong>Recipe:</strong></p>
+        <ol>
+          {meal.steps.map((step, idx) => (
+            <li key={idx}>{step}</li>
+          ))}
+        </ol>
+      </div>
+    )}
+  </div>
+) : (
+  <div className="steps empty-state">
+    <p className="empty-message">
+      Add ingredients to get a personalized meal recommendation
+    </p>
+  </div>
+)}  </section>
     </main>
   );
 }
@@ -126,13 +225,19 @@ export default function App() {
 
   useEffect(() => {
     const savedEmail = localStorage.getItem("userEmail");
-    if (savedEmail) setUserEmail(savedEmail);
+
+    if (savedEmail) {
+      const normalized = savedEmail.trim().toLowerCase();
+      setUserEmail(normalized);
+    }
+
     setLoading(false);
   }, []);
 
   const handleLogin = (email) => {
-    localStorage.setItem("userEmail", email);
-    setUserEmail(email);
+    const normalized = email.trim().toLowerCase();
+    localStorage.setItem("userEmail", normalized);
+    setUserEmail(normalized);
   };
 
   const handleLogout = () => {
@@ -146,26 +251,29 @@ export default function App() {
   return (
     <Router>
       <Routes>
-        {/* Landing */}
-        <Route path="/" element={<Landing ingredients={ingredients} setIngredients={setIngredients} />} />
-
-        {/* Login */}
         <Route
-          path="/login"
+          path="/"
           element={
-            userEmail
-              ? <Navigate to="/app" />
-              : <Login onLogin={handleLogin} />
+            userEmail ? (
+              <Landing ingredients={ingredients} />
+            ) : (
+              <Login onLogin={handleLogin} />
+            )
           }
         />
 
-        {/* Main app */}
         <Route
           path="/app"
           element={
-            userEmail
-              ? <Main userEmail={userEmail} onLogout={handleLogout} setAppIngredients={setIngredients} />
-              : <Navigate to="/login" />
+            userEmail ? (
+              <Main
+                userEmail={userEmail}
+                onLogout={handleLogout}
+                setAppIngredients={setIngredients}
+              />
+            ) : (
+              <Navigate to="/" />
+            )
           }
         />
 

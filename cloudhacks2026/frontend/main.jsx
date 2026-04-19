@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import apiClient from "./api";
 import "./main.css";
 
 export default function Main({ userEmail, onLogout, setAppIngredients }) {
@@ -10,30 +11,61 @@ export default function Main({ userEmail, onLogout, setAppIngredients }) {
 
   const navigate = useNavigate(); // ✅ for going back
 
+      // await fetchIngredients();
+      // setLoading(false);
+      // navigate("/");
+
   const API_URL = import.meta.env.VITE_API_URL;
+  
 
-  const fetchIngredients = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${API_URL}/get-ingredients`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          user_id: userEmail,
-        }),
-      });
 
-      const data = await res.json();
-      setAppIngredients(data || []);
-      navigate("/");
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+const normalizedEmail = userEmail?.trim().toLowerCase();
+const fetchIngredients = async () => {
+  setLoading(true);
+  try {
+    const res = await fetch(
+      `https://y8hng6eo97.execute-api.us-west-2.amazonaws.com/get-ingredients?user_id=${encodeURIComponent(normalizedEmail)}`
+    );
+
+    const text = await res.text();
+    console.log("STATUS:", res.status);
+    console.log("RAW RESPONSE:", text);
+
+    if (!res.ok) {
+      throw new Error(`Server error ${res.status}`);
     }
-  };
+
+    let data = [];
+    try {
+      data = JSON.parse(text);
+    } catch {
+      console.warn("Response not JSON");
+    }
+
+    setAppIngredients(data || []);
+    navigate("/");
+  } catch (err) {
+    console.error("Fetch error:", err);
+    alert("Something went wrong fetching ingredients");
+  } finally {
+    setLoading(false);
+  }
+};
+
+const saveIngredients = async () => {
+  setLoading(true);
+  try {
+    await apiClient.saveIngredients(normalizedEmail, ingredients);
+    await fetchIngredients(); // refresh + navigate
+  } catch (err) {
+    console.error("Error saving ingredients:", err);
+    alert("Failed to save ingredients. Please try again.");
+  } finally {
+    setLoading(false); // always reset loading
+  }
+};
+
+
 
   const handleFile = async (file) => {
     if (!file) return;
@@ -72,17 +104,16 @@ export default function Main({ userEmail, onLogout, setAppIngredients }) {
       }),
     });
 
-    const data = await res.json();    
-
-    // OPTIONAL: small delay so user sees "analyzing"
-    setTimeout(() => {
-      // RESET UI BACK TO MAIN PAGE
-      setUploadedImage(null);
-      setIngredients([]);
-    }, 800);
+    const data = await res.json();
+    
+    // Extract ingredients from response and set state
+    if (data.ingredients) {
+      setIngredients(data.ingredients);
+    }
 
   } catch (err) {
     console.error(err);
+    alert("Failed to analyze image. Please try again.");
   } finally {
     setLoading(false);
   }
@@ -216,7 +247,14 @@ export default function Main({ userEmail, onLogout, setAppIngredients }) {
 
                   {item.expiration_date && (
                     <p className="recipe-line">
-                      Expires: <span>{item.expiration_date}</span>
+                      Expires:{" "}
+                      <span>
+                        {new Date(item.expiration_date).toLocaleDateString("en-US", {
+                          year: "numeric",
+                          month: "2-digit",
+                          day: "2-digit",
+                        })}
+                      </span>
                     </p>
                   )}
 
@@ -233,12 +271,10 @@ export default function Main({ userEmail, onLogout, setAppIngredients }) {
             <div style={{ marginTop: "24px", textAlign: "center" }}>
               <button
                 className="primary-button"
-                onClick={() => {
-                  setIngredients([]);
-                  setUploadedImage(null);
-                }}
+                onClick={saveIngredients}
+                disabled={loading}
               >
-                Clear and Upload More
+                {loading ? "Saving..." : "Save"}
               </button>
             </div>
           </section>

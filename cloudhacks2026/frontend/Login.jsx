@@ -1,34 +1,95 @@
 import React, { useState } from 'react';
 import './login.css';
 
+const API_URL = "https://y8hng6eo97.execute-api.us-west-2.amazonaws.com";
+
 export default function Login({ onLogin }) {
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-
-    // Basic email validation
+  const validateEmail = () => {
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       setError('Please enter a valid email address');
-      setLoading(false);
+      return false;
+    }
+    return true;
+  };
+
+  // 🔐 SIGN IN
+  const handleSignIn = async (e) => {
+  e.preventDefault();
+  setError('');
+
+  if (!validateEmail()) return;
+
+  setLoading(true);
+  try {
+    const res = await fetch(
+      `${API_URL}/get-user?user_id=${encodeURIComponent(email)}`
+    );
+
+    if (res.status === 404) {
+      setError("No account found. Please sign up.");
       return;
     }
 
-    try {
-      // Save + update state
-      localStorage.setItem('userEmail', email);
-      onLogin(email); // 
-
-    } catch (err) {
-      setError('Failed to sign in. Please try again.');
-    } finally {
-      setLoading(false);
+    if (!res.ok) {
+      throw new Error("Server error");
     }
-  };
+
+    // user exists → log in
+    localStorage.setItem('userEmail', email);
+    onLogin(email);
+
+  } catch (err) {
+    console.error(err);
+    setError("Failed to sign in.");
+  } finally {
+    setLoading(false);
+  }
+};
+  // 🆕 SIGN UP → calls API Gateway
+  const handleSignUp = async () => {
+  setError('');
+
+  if (!validateEmail()) return;
+
+  setLoading(true);
+  try {
+    const res = await fetch(`${API_URL}/add-user`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        user_id: email,
+      }),
+    });
+
+    const text = await res.text();
+
+    // 🔥 handle "user already exists"
+    if (res.status === 409) {
+      setError("Account already exists. Please sign in.");
+      return;
+    }
+
+    if (!res.ok) {
+      throw new Error(text);
+    }
+
+    // success → log in
+    localStorage.setItem('userEmail', email);
+    onLogin(email);
+
+  } catch (err) {
+    console.error(err);
+    setError("Failed to sign up. Try again.");
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <div className="login-container">
@@ -38,7 +99,7 @@ export default function Login({ onLogin }) {
           <p className="login-tagline">Reduce food waste, maximize freshness</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="login-form">
+        <form onSubmit={handleSignIn} className="login-form">
           <div className="form-group">
             <label htmlFor="email">Email Address</label>
             <input
@@ -54,9 +115,25 @@ export default function Login({ onLogin }) {
 
           {error && <div className="error-message">{error}</div>}
 
-          <button type="submit" className="signin-button" disabled={loading}>
-            {loading ? 'Signing in...' : 'Sign In'}
-          </button>
+          {/* 🔥 Buttons */}
+          <div className="button-row">
+            <button
+              type="submit"
+              className="auth-button primary"
+              disabled={loading}
+            >
+              {loading ? "..." : "Sign In"}
+            </button>
+
+            <button
+              type="button"
+              className="auth-button secondary"
+              onClick={handleSignUp}
+              disabled={loading}
+            >
+              {loading ? "..." : "Sign Up"}
+            </button>
+          </div>
         </form>
 
         <div className="login-footer">
