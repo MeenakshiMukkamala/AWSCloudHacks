@@ -143,14 +143,12 @@ def format_quantity(count: int | None, unit: str, name: str,
         'egg': 55, 'butter': 200, 'cheese': 200,
         'yogurt': 150, 'milk': 250,
     }
-    # Weight item with no gram data — derive from name lookup or use a category default
     qty = count if count and count > 0 else 1
     lower = name.lower()
     grams_each = next((v for k, v in PER_UNIT_GRAMS.items() if k in lower), None)
     if grams_each:
         return f"~{qty * grams_each}g"
 
-    # Last-resort category defaults (grams per unit)
     CATEGORY_GRAM_DEFAULTS = {
         'meat': 250, 'dairy': 200, 'vegetable': 150,
         'fruit': 150, 'bread': 80, 'meal': 400,
@@ -175,7 +173,6 @@ def load_image(path: str) -> tuple[bytes, str]:
 
 
 # ── Category-based fallback shelf lives (days) ────────────────────────────────
-# Used when the model still returns null despite the prompt instructions.
 
 CATEGORY_SHELF_LIFE_DEFAULTS = {
     'fruit':     10,
@@ -191,7 +188,6 @@ CATEGORY_SHELF_LIFE_DEFAULTS = {
     'other':      7,
 }
 
-# More granular keyword overrides checked before category default
 NAME_SHELF_LIFE_DEFAULTS = {
     'potato': 30, 'sweet potato': 21, 'yam': 21,
     'carrot': 21, 'onion': 60, 'garlic': 120, 'shallot': 30,
@@ -216,31 +212,22 @@ NAME_SHELF_LIFE_DEFAULTS = {
 }
 
 def get_shelf_life_default(name: str, category: str) -> int:
-    """Return a best-guess typical shelf life in days based on name keywords."""
     lower = name.lower()
-    # Check name keywords first (longest match wins)
     for key in sorted(NAME_SHELF_LIFE_DEFAULTS, key=len, reverse=True):
         if key in lower:
             return NAME_SHELF_LIFE_DEFAULTS[key]
-    # Fall back to category default
     return CATEGORY_SHELF_LIFE_DEFAULTS.get(category, 7)
 
 
 def apply_freshness_fallbacks(item: dict) -> dict:
-    """
-    Fill in reasonable defaults for any null/missing fields so the final
-    JSON output contains no null values except where genuinely not applicable.
-    """
     name     = item.get('name', '')
     category = item.get('category', 'other')
 
-    # ── typical_shelf_life ────────────────────────────────────────────────────
     shelf_life = item.get('typical_shelf_life')
     if not isinstance(shelf_life, int) or shelf_life <= 0:
         shelf_life = get_shelf_life_default(name, category)
         item['typical_shelf_life'] = shelf_life
 
-    # ── days_remaining ────────────────────────────────────────────────────────
     days = item.get('days_remaining')
     if not isinstance(days, int):
         item['days_remaining'] = shelf_life
@@ -256,18 +243,11 @@ def apply_freshness_fallbacks(item: dict) -> dict:
                 f'shelf life for this item ({shelf_life} days).'
             )
 
-    # ── count ─────────────────────────────────────────────────────────────────
-    # Null count is fine for weight/bulk items; set to 1 as a minimum for
-    # countable items so downstream quantity formatting always has something.
     if item.get('count') is None:
         unit_hint = smart_unit(name, category)
         if unit_hint == 'count':
             item['count'] = 1
 
-    # ── estimated_grams ───────────────────────────────────────────────────────
-    # For weight-category items the model sometimes leaves this null.
-    # Try to derive it from count + name lookup; leave null only for whole
-    # countable items where gram display isn't meaningful.
     if item.get('estimated_grams') is None:
         unit_hint = smart_unit(name, category)
         cnt = item.get('count') or 1
@@ -276,18 +256,15 @@ def apply_freshness_fallbacks(item: dict) -> dict:
             if derived:
                 item['estimated_grams'] = derived
             else:
-                item.pop('estimated_grams', None)  # remove rather than store null
+                item.pop('estimated_grams', None)
         else:
-            item.pop('estimated_grams', None)  # grams already shown inside quantity string
+            item.pop('estimated_grams', None)
 
-    # ── limiting_ingredient ───────────────────────────────────────────────────
-    # Remove the key entirely for non-meal items so it doesn't appear as null.
     if category != 'meal':
         item.pop('limiting_ingredient', None)
     elif item.get('limiting_ingredient') is None:
         item['limiting_ingredient'] = 'unknown ingredient'
 
-    # ── freshness_notes ───────────────────────────────────────────────────────
     if not item.get('freshness_notes'):
         item['freshness_notes'] = (
             f'No visible spoilage or quality issues detected for this {category}.'
@@ -299,14 +276,12 @@ def apply_freshness_fallbacks(item: dict) -> dict:
 # ── Enrich a single raw item dict ─────────────────────────────────────────────
 
 def enrich_item(item: dict, now: datetime) -> dict:
-    """Add computed fields (status, scale, dates, quantity) to a raw AI item."""
-    # Apply fallbacks FIRST so all downstream logic sees real integers
     item = apply_freshness_fallbacks(item)
 
-    days       = item.get('days_remaining')
-    shelf_life = item.get('typical_shelf_life')
-    name       = item.get('name', '')
-    category   = item.get('category', 'other')
+    days        = item.get('days_remaining')
+    shelf_life  = item.get('typical_shelf_life')
+    name        = item.get('name', '')
+    category    = item.get('category', 'other')
     estimated_g = item.get('estimated_grams')
 
     status = freshness_status(days)
@@ -516,7 +491,6 @@ def print_results(items: list[dict], image_path: str) -> None:
         cat = item.get('category', 'other')
         by_cat.setdefault(cat, []).append(item)
 
-    # Always show meals first
     ordered_cats = sorted(by_cat.keys(), key=lambda c: (0 if c == 'meal' else 1, c))
 
     for cat in ordered_cats:
@@ -524,19 +498,19 @@ def print_results(items: list[dict], image_path: str) -> None:
         emoji = CATEGORY_EMOJI.get(cat, '•')
         print(f"\n  {emoji}  {cat.upper()}")
         for item in sorted(group, key=lambda x: x.get('days_remaining') or 999):
-            conf        = item.get('confidence', '?')
-            days        = item.get('days_remaining')
-            urgency     = item.get('freshness_urgency', 'unknown')
-            status      = item.get('freshness_status', 'unknown')
-            symbol      = URGENCY_SYMBOL.get(urgency, '⚪')
-            notes       = item.get('freshness_notes', '')
-            limiting    = item.get('limiting_ingredient')
-            days_str    = f"{days}d left" if days is not None else 'freshness unknown'
-            scale       = item.get('freshness_scale')
-            bar         = freshness_bar(scale)
-            qty         = item.get('quantity', '?')
-            added       = item.get('date_added', '?')
-            expiry      = item.get('expiration_date', '?')
+            conf     = item.get('confidence', '?')
+            days     = item.get('days_remaining')
+            urgency  = item.get('freshness_urgency', 'unknown')
+            status   = item.get('freshness_status', 'unknown')
+            symbol   = URGENCY_SYMBOL.get(urgency, '⚪')
+            notes    = item.get('freshness_notes', '')
+            limiting = item.get('limiting_ingredient')
+            days_str = f"{days}d left" if days is not None else 'freshness unknown'
+            scale    = item.get('freshness_scale')
+            bar      = freshness_bar(scale)
+            qty      = item.get('quantity', '?')
+            added    = item.get('date_added', '?')
+            expiry   = item.get('expiration_date', '?')
 
             print(f"\n     {symbol} {item['name']}  ({conf}% conf)")
             print(f"        Quantity   : {qty}")
@@ -563,6 +537,10 @@ def parse_args():
     parser.add_argument('image', help='Path to the image file (jpg, png, webp)')
     parser.add_argument('--json', '-j', action='store_true',
                         help='Output raw JSON instead of formatted text')
+    parser.add_argument('--user', '-u', default='default',
+                        help='User ID to associate with saved items (default: "default")')
+    parser.add_argument('--no-save', action='store_true',
+                        help='Skip saving to DynamoDB')
     return parser.parse_args()
 
 
@@ -586,18 +564,76 @@ def main():
 
     items = detect_all_items(image_bytes, media_type)
 
+    # ── Save to DynamoDB ───────────────────────────────────────────────────────
+    if not args.no_save and items:
+        try:
+            from dynamo_store import save_item
+            for item in items:
+                save_item(user_id=args.user, item=item)
+        except Exception as e:
+            print(f"  [DynamoDB] Warning: could not save — {e}", file=sys.stderr)
+
     if args.json:
         print(json.dumps(items, indent=2))
     else:
         print_results(items, str(path))
 
 
-if __name__ == '__main__':
-    main()
+# ── Lambda handler ─────────────────────────────────────────────────────────────
 
 def lambda_handler(event, context):
-    # TODO implement
-    return {
-        'statusCode': 200,
-        'body': json.dumps('Hello from Lambda!')
-    }
+    """
+    Expected request body (JSON):
+        {
+            "image":      "<base64-encoded image bytes>",
+            "media_type": "image/jpeg",   (optional, default: image/jpeg)
+            "user_id":    "aditya"        (optional, default: "default")
+        }
+
+    Returns:
+        200 + list of enriched item dicts on success
+        400 if image field is missing
+        500 on any other error
+    """
+    try:
+        body = event.get('body', '{}')
+        if isinstance(body, str):
+            body = json.loads(body)
+
+        if 'image' not in body:
+            return {
+                'statusCode': 400,
+                'headers': {'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'error': 'Missing required field: image (base64)'})
+            }
+
+        image_bytes = base64.b64decode(body['image'])
+        media_type  = body.get('media_type', 'image/jpeg')
+        user_id     = body.get('user_id', 'default')
+
+        items = detect_all_items(image_bytes, media_type)
+
+        # Save each detected item to DynamoDB
+        try:
+            from dynamo_store import save_item
+            for item in items:
+                save_item(user_id=user_id, item=item)
+        except Exception as e:
+            print(f"[DynamoDB] Warning: could not save — {e}")
+
+        return {
+            'statusCode': 200,
+            'headers': {'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps(items)
+        }
+
+    except Exception as e:
+        return {
+            'statusCode': 500,
+            'headers': {'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps({'error': str(e)})
+        }
+
+
+if __name__ == '__main__':
+    main()
