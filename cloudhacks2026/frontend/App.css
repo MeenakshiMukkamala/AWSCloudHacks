@@ -316,3 +316,48 @@ button {
     flex-direction: column;
   }
 }
+.two-column {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 768px) {
+  .two-column {
+    grid-template-columns: 1fr;
+  }
+}
+
+.recipe-section {
+  margin-top: 16px;
+}
+
+.recipe-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.ingredient-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.ingredient-tags li {
+  background: #f3f4f6;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 14px;
+}
+
+.recipe-steps {
+  padding-left: 18px;
+  margin-top: 8px;
+}
+
+.recipe-steps li {
+  margin-bottom: 6px;
+}
