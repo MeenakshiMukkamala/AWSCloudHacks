@@ -19,10 +19,10 @@ export default function Login({ onLogin }) {
     }
 
     try {
-      // TODO: Replace with actual authentication API call
-      // For now, we'll simulate a login and store the email in localStorage
+      // Save + update state
       localStorage.setItem('userEmail', email);
-      onLogin(email);
+      onLogin(email); // 
+
     } catch (err) {
       setError('Failed to sign in. Please try again.');
     } finally {

@@ -1,235 +1,249 @@
-import React, { useState } from 'react';
-import './main.css';
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import "./main.css";
 
-export default function Main({ userEmail, onLogout }) {
+export default function Main({ userEmail, onLogout, setAppIngredients }) {
+  
   const [uploadedImage, setUploadedImage] = useState(null);
   const [ingredients, setIngredients] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [selectedIngredient, setSelectedIngredient] = useState(null);
+
+  const navigate = useNavigate(); // ✅ for going back
+
   const API_URL = import.meta.env.VITE_API_URL;
 
-  const handleImageUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      setUploadedImage(event.target.result);
-    };
-    reader.readAsDataURL(file);
-
-    // Send to backend for AI analysis
-    await analyzeImage(file);
-  };
-
-  const handleCameraCapture = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      setUploadedImage(event.target.result);
-    };
-    reader.readAsDataURL(file);
-
-    await analyzeImage(file);
-  };
-
-  const analyzeImage = async (file) => {
+  const fetchIngredients = async () => {
     setLoading(true);
     try {
-      const formData = new FormData();
-      formData.append('image', file);
+      const res = await fetch(`${API_URL}/get-ingredients`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          user_id: userEmail,
+        }),
+      });
 
-      const response = await fetch(`${API_URL}/analyze-ingredients`, {
-      method: 'POST',
-      body: formData
-    });
-
-      if (response.ok) {
-        const data = await response.json();
-        setIngredients(data.ingredients || []);
-      }
-    } catch (error) {
-      console.error('Error analyzing image:', error);
+      const data = await res.json();
+      setAppIngredients(data || []);
+      navigate("/");
+    } catch (err) {
+      console.error(err);
     } finally {
       setLoading(false);
     }
   };
 
+  const handleFile = async (file) => {
+    if (!file) return;
 
-  const getFreshnessColor = (ingredient) => {
-    const urgency = ingredient.freshness_urgency || 'unknown';
-    if (urgency === 'critical' || urgency === 'urgent') return '#ef4444'; // Red
-    if (urgency === 'warning') return '#f59e0b'; // Amber
-    if (urgency === 'good' || urgency === 'excellent') return '#10b981'; // Green
-    return '#f59e0b'; // Default to Amber for unknown
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const fullDataURL = event.target.result;
+      setUploadedImage(fullDataURL);
+    };
+    
+    reader.readAsDataURL(file);
+
+    await analyzeImage(file);
+ 
   };
 
-  const getFreshnessLabel = (ingredient) => {
-    return ingredient.freshness_status ? 
-      ingredient.freshness_status.charAt(0).toUpperCase() + ingredient.freshness_status.slice(1) : 
-      'Unknown';
-  };
+  const analyzeImage = async (file) => {
+  setLoading(true);
 
-  const getCardBackgroundColor = (ingredient) => {
-    const urgency = ingredient.freshness_urgency || 'unknown';
-    if (urgency === 'critical' || urgency === 'urgent') return '#fee2e2'; // Light red
-    if (urgency === 'warning') return '#fef3c7'; // Light yellow
-    if (urgency === 'good' || urgency === 'excellent') return '#dcfce7'; // Light green
-    return '#fef3c7'; // Default to light yellow for unknown
-  };
+  try {
+    const base64 = await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(",")[1]);
+      reader.readAsDataURL(file);
+    });
+
+    const res = await fetch('https://y8hng6eo97.execute-api.us-west-2.amazonaws.com/add-ingredients', {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        user_id: userEmail,
+        image: base64,
+        media_type: "." + file.type.split("/")[1]
+      }),
+    });
+
+    const data = await res.json();    
+
+    // OPTIONAL: small delay so user sees "analyzing"
+    setTimeout(() => {
+      // RESET UI BACK TO MAIN PAGE
+      setUploadedImage(null);
+      setIngredients([]);
+    }, 800);
+
+  } catch (err) {
+    console.error(err);
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
-    <div className="scrapless-container">
-      {/* Header */}
-      <header className="header">
-        <div className="header-content">
-          <h1 className="logo">Scrapless</h1>
-          <p className="tagline">Reduce food waste, maximize freshness</p>
-          <div className="header-user">
-            <span className="user-email">{userEmail}</span>
-            <button onClick={onLogout} className="logout-button">Sign Out</button>
-          </div>
-        </div>
-      </header>
+    <main className="app-shell">
+      {/* HERO (centered) */}
+      <section
+        className="hero"
+        style={{ display: "flex", justifyContent: "center" }}
+      >
+        <div
+          className="hero-copy"
+          style={{
+            maxWidth: "600px",
+            width: "100%",
+            textAlign: "center",
+          }}
+        >
+          <p className="eyebrow">Your kitchen</p>
+          <h1>Scan your ingredients</h1>
+          <p className="hero-text">
+            Upload a photo to track freshness and get meal ideas.
+            (Please upload images that are '.jpg', '.jpeg', '.png', '.webp', '.gif' and less than 10MB only.)
+          </p>
 
-      {/* Main Content */}
-      <main className="main-content">
-        {/* Upload Section */}
-        <section className="upload-section">
-          <div className="upload-container">
-            <h2>Snap a photo of your ingredients</h2>
-            <p className="upload-description">
-              Upload an image or take a photo of your fridge contents. Our AI will identify what you have and track freshness.
-            </p>
-
-            <div className="upload-buttons">
-              <label className="upload-button camera-button">
-                <span>Take Photo</span>
+          <div
+            className="hero-actions"
+            style={{ justifyContent: "center" }}
+          >
+              <label className="primary-button">
+                Upload Image
                 <input
                   type="file"
                   accept="image/*"
-                  capture="environment"
-                  onChange={handleCameraCapture}
-                  style={{ display: 'none' }}
+                  hidden
+                  onChange={(e) => handleFile(e.target.files[0])}
                 />
               </label>
 
-              <label className="upload-button upload-file-button">
-                <span>Upload Image</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageUpload}
-                  style={{ display: 'none' }}
-                />
-              </label>
+              <button className="primary-button" onClick={fetchIngredients}>
+                View My Ingredients
+              </button>
+
+              <button className="secondary-button" onClick={onLogout}>
+                Sign Out
+              </button>
             </div>
           </div>
-
-          {/* Image Preview */}
-          {uploadedImage && (
-            <div className="image-preview-container">
-              <img src={uploadedImage} alt="Uploaded" className="image-preview" />
-            </div>
-          )}
         </section>
 
-        {/* Loading State */}
-        {loading && (
-          <section className="loading-section">
-            <div className="loader"></div>
+      {/* IMAGE PREVIEW */}
+      {uploadedImage && (
+        <section
+          className="content-grid"
+          style={{ display: "flex", justifyContent: "center" }}
+        >
+          <section
+            className="card"
+            style={{ width: "700px", maxWidth: "100%" }}
+          >
+            <p className="section-label">Uploaded Image</p>
+            <img
+              src={uploadedImage}
+              alt="preview"
+              style={{
+                width: "100%",
+                borderRadius: "20px",
+                marginTop: "12px",
+              }}
+            />
+          </section>
+        </section>
+      )}
+
+      {/* LOADING */}
+      {loading && (
+        <section
+          className="content-grid"
+          style={{ display: "flex", justifyContent: "center" }}
+        >
+          <section
+            className="card"
+            style={{ width: "700px", maxWidth: "100%" }}
+          >
             <p>Analyzing your ingredients...</p>
           </section>
-        )}
+        </section>
+      )}
 
-        {/* Ingredients Section */}
-        {ingredients.length > 0 && !loading && (
-          <section className="ingredients-section">
-            <h2>Your Ingredients</h2>
-            <p className="section-description">
-              {ingredients.length} item{ingredients.length !== 1 ? 's' : ''} identified
-            </p>
+      {/* RESULTS */}
+      {ingredients.length > 0 && !loading && (
+        <section
+          className="content-grid"
+          style={{ display: "flex", justifyContent: "center" }}
+        >
+          <section
+            className="card"
+            style={{ width: "700px", maxWidth: "100%" }}
+          >
+            <div className="section-heading">
+              <div>
+                <p className="section-label">Detected items</p>
+                <h2>Your Ingredients</h2>
+              </div>
+            </div>
 
-            <div className="ingredients-grid">
-              {[...ingredients].sort((a, b) => a.days_remaining - b.days_remaining).map((ingredient, index) => (
-                <div
-                  key={index}
-                  className="ingredient-card"
-                  onClick={() => setSelectedIngredient(selectedIngredient === index ? null : index)}
-                  style={{ 
-                    cursor: 'pointer',
-                    backgroundColor: getCardBackgroundColor(ingredient)
-                  }}
-                >
-                  <h3 className="ingredient-name">{ingredient.name}</h3>
-
-                  <div className="freshness-container">
-                    <div
-                      className="freshness-bar"
-                      style={{
-                        backgroundColor: getFreshnessColor(ingredient),
-                        width: `${(ingredient.freshness_scale / 10) * 100}%`,
-                      }}
-                    ></div>
-                  </div>
-
-                  <div className="freshness-info">
-                    <span
-                      className="freshness-badge"
-                      style={{
-                        backgroundColor: getFreshnessColor(ingredient),
-                        color: 'white',
-                      }}
-                    >
-                      {getFreshnessLabel(ingredient)}
-                    </span>
-                    <span className="days-left">{ingredient.days_remaining} days</span>
-                  </div>
-
-                  {/* Expanded Details */}
-                  {selectedIngredient === index && (
-                    <div className="ingredient-details">
-                      <div className="storage-tip">
-                        <strong>Storage Tip:</strong>
-                        <p>{ingredient.storageTip}</p>
-                      </div>
-                      <div className="usage-suggestions">
-                        <strong>Use in:</strong>
-                        <div className="suggestions-list">
-                          {ingredient.recipes && ingredient.recipes.map((recipe, idx) => (
-                            <span key={idx} className="suggestion-tag">
-                              {recipe}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="condition">
-                        <strong>Condition:</strong>
-                        <p>{ingredient.condition}</p>
-                      </div>
+            <div className="ingredient-list">
+              {ingredients.map((item, idx) => (
+                <article className="ingredient-card" key={idx}>
+                  <div className="ingredient-top">
+                    <div>
+                      <h3>{item.name}</h3>
+                      <p>{item.freshness_status || "Unknown freshness"}</p>
                     </div>
+                    <strong>{item.days_remaining !== null ? `${item.days_remaining}d left` : "Freshness unknown"}</strong>
+                  </div>
+
+                  {item.quantity && (
+                    <p className="recipe-line">
+                      Quantity: <span>{item.quantity}</span>
+                    </p>
                   )}
-                </div>
+
+                  {item.freshness_notes && (
+                    <p className="recipe-line">
+                      Details: <span>{item.freshness_notes}</span>
+                    </p>
+                  )}
+
+                  {item.expiration_date && (
+                    <p className="recipe-line">
+                      Expires: <span>{item.expiration_date}</span>
+                    </p>
+                  )}
+
+                  {item.category && (
+                    <p className="recipe-line">
+                      Category: <span>{item.category}</span>
+                    </p>
+                  )}
+                </article>
               ))}
             </div>
-          </section>
-        )}
 
-        {/* Empty State */}
-        {!uploadedImage && ingredients.length === 0 && !loading && (
-          <section className="empty-state">
-            <h3>Ready to reduce food waste?</h3>
-            <p>Upload a photo of your ingredients to get started</p>
+            {/* ✅ SAVE BUTTON */}
+            <div style={{ marginTop: "24px", textAlign: "center" }}>
+              <button
+                className="primary-button"
+                onClick={() => {
+                  setIngredients([]);
+                  setUploadedImage(null);
+                }}
+              >
+                Clear and Upload More
+              </button>
+            </div>
           </section>
-        )}
-      </main>
-
-      {/* Footer */}
-      <footer className="footer">
-        <p>Scrapless © 2026 - Making a difference, one ingredient at a time</p>
-      </footer>
-    </div>
+        </section>
+      )}
+    </main>
   );
 }
