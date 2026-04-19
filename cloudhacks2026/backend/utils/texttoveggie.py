@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-texttoveggie.py — Look up freshness for a food item by name, date, and quantity.
+text_vegetable.py — Look up freshness for a food item by name, date, and quantity.
                     Uses AWS Bedrock (Nova Pro) to reason about the item.
 
 Usage:
@@ -187,6 +187,9 @@ def enrich_item(item: dict, date_purchased: datetime, user_qty: str = None) -> d
 
     return item
 
+item = enrich_item(raw, date_purchased, args.qty)
+from dynamo_store import save_item
+save_item(user_id='default', item=item)
 
 # ── Output formatting ─────────────────────────────────────────────────────────
 
